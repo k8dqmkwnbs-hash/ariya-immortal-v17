@@ -1,0 +1,54 @@
+const express = require("express");
+const http = require("http");
+const { Server } = require("socket.io");
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
+
+app.use(express.static("public"));
+
+const RANKS = ["รวบรวมลมปราณ", "ก่อตั้งรากฐาน", "หลอมรวมแก่นทอง", "วิญญาณก่อกำเนิด", "ตัดพ้นปุถุชน", "จุติเทพ", "มหาเทพนิรันดร์", "ราชันย์เทวะ", "ปฐมกาลไร้ขอบเขต"];
+
+let players = {};
+
+setInterval(() => {
+    Object.keys(players).forEach(id => {
+        let p = players[id];
+        if (p.isAuto) {
+            // ระบบปราบมอนสเตอร์ปกติ
+            p.monsterKilled = (p.monsterKilled || 0) + 1;
+            p.exp += (10 / (p.level + 1));
+            p.gold += (p.level * 500);
+
+            if (p.exp >= 100) { p.level++; p.exp = 0; }
+
+            // เช็คการปรากฏของบอส (ทุกเลเวลที่ลงท้ายด้วย 9)
+            p.bossReady = (p.level % 10 === 9 && p.monsterKilled >= 50);
+            
+            let rIdx = Math.min(Math.floor((p.level - 1) / 10), RANKS.length - 1);
+            p.rankName = RANKS[rIdx];
+            
+            io.to(id).emit("tick", p);
+        }
+    });
+}, 1000);
+
+io.on("connection", (socket) => {
+    socket.on("join", (save) => {
+        players[socket.id] = save || { level: 1, exp: 0, gold: 5000, monsterKilled: 0, bAtk: 1000, isAuto: false };
+    });
+
+    socket.on("toggle", () => { if(players[socket.id]) players[socket.id].isAuto = !players[socket.id].isAuto; });
+
+    // --- คำสั่ง GM ลับ ---
+    socket.on("gm_power", (type) => {
+        let p = players[socket.id];
+        if (type === "gold") p.gold += 1000000;
+        if (type === "lv") p.level += 10;
+        io.to(socket.id).emit("tick", p);
+    });
+
+    socket.on("disconnect", () => delete players[socket.id]);
+});
+
+server.listen(process.env.PORT || 3000);
